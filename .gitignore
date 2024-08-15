@@ -1,0 +1,63 @@
+# Build directories
+build/
+_build/
+*.out
+*.elf
+*.hex
+*.bin
+*.map
+
+# Object files
+*.o
+*.obj
+*.a
+*.lib
+
+# Debug files
+*.dSYM/
+*.su
+*.idb
+*.pdb
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Documentation
+docs/html/
+docs/latex/
+docs/xml/
+
+# Dependencies
+*.d
+
+# CMake
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+Makefile
+*.cmake
+
+# nRF specific
+*.jlink
+*.uvopt
+*.uvoptx
+*.uvproj
+*.uvprojx
+_build/
+*.bak
+*.dep
+*.eww
+*.ewd
+*.ewp
+*.dni
+*.wsdt
+*.dbgdt
+
+# Logs
+*.log
+
