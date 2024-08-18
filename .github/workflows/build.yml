@@ -1,0 +1,70 @@
+name: Build and Test
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v3
+      
+    - name: Setup ARM GCC toolchain
+      uses: carlosperate/arm-none-eabi-gcc-action@v1
+      with:
+        release: '10.3-2021.10'
+        
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y cmake ninja-build
+        
+    - name: Download nRF5 SDK
+      run: |
+        wget https://developer.nordicsemi.com/nRF5_SDK/nRF5_SDK_v17.x.x/nRF5_SDK_17.1.0_ddde560.zip
+        unzip -q nRF5_SDK_17.1.0_ddde560.zip -d nrf5_sdk
+        
+    - name: Build HAL library
+      run: |
+        mkdir -p build
+        cd build
+        cmake -G Ninja ..
+        ninja
+        
+    - name: Run static analysis
+      run: |
+        sudo apt-get install -y cppcheck
+        cppcheck --enable=all --error-exitcode=1 --suppress=missingIncludeSystem src/
+        
+    - name: Check code formatting
+      run: |
+        sudo apt-get install -y clang-format
+        find src/ include/ -name '*.c' -o -name '*.h' | xargs clang-format --dry-run --Werror
+
+  documentation:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v3
+      
+    - name: Install Doxygen
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y doxygen graphviz
+        
+    - name: Generate documentation
+      run: |
+        doxygen Doxyfile
+        
+    - name: Upload documentation
+      uses: actions/upload-artifact@v3
+      with:
+        name: doxygen-docs
+        path: docs/html/
+
