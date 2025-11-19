@@ -1,11 +1,11 @@
 /**
  * @file da7281.c
  * @brief DA7281 Haptic Driver HAL Implementation
- * @author Abdul Rahman
+ * @author A. R. Ansari
  * @date 2024-08-15
  * @version 1.0.0
  * 
- * @copyright Copyright (c) 2024 Abdul Rahman
+ * @copyright Copyright (c) 2024 A. R. Ansari
  * 
  * Licensed under the MIT License.
  */

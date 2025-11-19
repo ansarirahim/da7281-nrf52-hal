@@ -1,11 +1,11 @@
 /**
  * @file haptics_test_task.c
  * @brief FreeRTOS Task Example for DA7281 Haptic Driver
- * @author Abdul Rahman
+ * @author A. R. Ansari
  * @date 2024-08-15
  * @version 1.0.0
  * 
- * @copyright Copyright (c) 2024 Abdul Rahman
+ * @copyright Copyright (c) 2024 A. R. Ansari
  * 
  * Licensed under the MIT License.
  * 

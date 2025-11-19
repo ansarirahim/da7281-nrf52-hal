@@ -231,9 +231,13 @@ MIT License - see [LICENSE](LICENSE) file for details.
 
 ## 👤 Author
 
-**Abdul Rahman**
+**A. R. Ansari**
 - Embedded Firmware Engineer
 - Specialization: Nordic nRF52, FreeRTOS, Low-Level Drivers
+- Email: ansarirahim1@gmail.com
+- GitHub: [@ansarirahim](https://github.com/ansarirahim)
+- LinkedIn: [Abdul Raheem Ansari](https://www.linkedin.com/in/abdul-raheem-ansari-a6871320/)
+- WhatsApp: +919024304883
 
 ## 🤝 Contributing
 

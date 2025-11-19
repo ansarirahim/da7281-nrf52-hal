@@ -1,6 +1,6 @@
 #!/bin/bash
 # Git Repository Initialization Script with Professional Commit History
-# Author: Abdul Rahman
+# Author: A. R. Ansari
 # Date: 2024-08-15
 
 set -e
@@ -11,8 +11,8 @@ echo "Initializing DA7281 HAL Git Repository..."
 git init
 
 # Configure git user (update with your details)
-git config user.name "Abdul Rahman"
-git config user.email "abdul.rahman@example.com"
+git config user.name "A. R. Ansari"
+git config user.email "ansarirahim1@gmail.com"
 
 # Commit 1: Initial project structure (2024-08-15 10:00:00)
 echo "Creating commit 1: Initial project structure"
