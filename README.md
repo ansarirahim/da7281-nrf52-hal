@@ -1,41 +1,40 @@
 # DA7281 Haptic Driver HAL for nRF52833 + FreeRTOS
 
-[![Build Status](https://github.com/yourusername/da7281-nrf52-hal/workflows/Build%20and%20Test/badge.svg)](https://github.com/yourusername/da7281-nrf52-hal/actions)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 Professional Hardware Abstraction Layer (HAL) for the Dialog Semiconductor DA7281 haptic driver IC, designed for Nordic nRF52833 microcontroller with FreeRTOS integration.
 
-## 🎯 Features
+## Features
 
-- ✅ **Complete DA7281 Register-Level Driver**
+- **Complete DA7281 Register-Level Driver**
   - All configuration registers defined as macros
   - No magic numbers in code
   - Datasheet-compliant timing sequences
 
-- ✅ **Thread-Safe I2C Communication**
+- **Thread-Safe I2C Communication**
   - FreeRTOS mutex-protected TWI operations
   - Timeout handling
   - Multi-device support
 
-- ✅ **LRA/ERM Motor Support**
+- **LRA/ERM Motor Support**
   - Automatic resonant frequency configuration
   - V2I factor calculation
   - Acceleration and rapid stop control
   - Frequency tracking
 
-- ✅ **Multiple Operation Modes**
+- **Multiple Operation Modes**
   - DRO (Direct Register Override)
   - PWM mode
   - RTWM (Real-Time Waveform Memory)
   - ETWM (Extended Waveform Memory)
 
-- ✅ **Professional Code Quality**
+- **Professional Code Quality**
   - MISRA-C compliant style
   - Doxygen documentation
   - Clean commit history
   - CI/CD integration
 
-## 📁 Project Structure
+## Project Structure
 
 ```
 da7281-nrf52-hal/
@@ -56,7 +55,7 @@ da7281-nrf52-hal/
 └── README.md                 # This file
 ```
 
-## 🚀 Quick Start
+## Quick Start
 
 ### Prerequisites
 
@@ -111,7 +110,7 @@ EN          --------    P0.28 (GPIO - configurable)
    }
    ```
 
-## 📖 Usage Examples
+## Usage Examples
 
 ### Basic Initialization
 
@@ -165,7 +164,7 @@ da7281_set_operation_mode(&haptic_dev, DA7281_OPERATION_MODE_INACTIVE);
 da7281_run_self_test(&haptic_dev, 100);
 ```
 
-## 🏗️ Architecture
+## Architecture
 
 ### Power-Up Sequence
 
@@ -188,7 +187,7 @@ xSemaphoreTake(g_i2c_mutex, timeout)
 xSemaphoreGive(g_i2c_mutex)
 ```
 
-## 📊 API Reference
+## API Reference
 
 See [Doxygen documentation](docs/html/index.html) for complete API reference.
 
@@ -204,7 +203,7 @@ See [Doxygen documentation](docs/html/index.html) for complete API reference.
 | `da7281_set_override_value()` | Set DRO amplitude |
 | `da7281_run_self_test()` | Run self-test sequence |
 
-## 🧪 Testing
+## Testing
 
 Run the example task on DWM3001CDK:
 
@@ -225,11 +224,11 @@ DA7281: Configuring LRA parameters
 Haptics Task: Running self-test (100ms pulse)
 ```
 
-## 📝 License
+## License
 
 MIT License - see [LICENSE](LICENSE) file for details.
 
-## 👤 Author
+## Author
 
 **A. R. Ansari**
 - Embedded Firmware Engineer
@@ -239,14 +238,14 @@ MIT License - see [LICENSE](LICENSE) file for details.
 - LinkedIn: [Abdul Raheem Ansari](https://www.linkedin.com/in/abdul-raheem-ansari-a6871320/)
 - WhatsApp: +919024304883
 
-## 🤝 Contributing
+## Contributing
 
 Contributions welcome! Please follow:
 - MISRA-C coding standards
 - Doxygen comment style
 - Clean commit messages
 
-## 📚 References
+## References
 
 - [DA7281 Datasheet](https://www.renesas.com/en/document/dst/da7281-datasheet)
 - [nRF52833 Product Specification](https://infocenter.nordicsemi.com/pdf/nRF52833_PS_v1.5.pdf)
