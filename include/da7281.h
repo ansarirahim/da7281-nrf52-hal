@@ -42,7 +42,8 @@ extern "C" {
 /*===========================================================================*/
 
 /* Device identification */
-#define DA7281_REG_CHIP_REV             (0x00U)
+#define DA7281_REG_CHIP_ID              (0x01U)  /* DA7281 Datasheet Rev 3.0, Table 20, Page 52 */
+#define DA7281_REG_CHIP_REV             (0x02U)  /* Chip revision register */
 #define DA7281_REG_IRQ_EVENT1           (0x03U)
 #define DA7281_REG_IRQ_EVENT_WARNING    (0x04U)
 #define DA7281_REG_IRQ_EVENT_SEQ        (0x05U)
@@ -93,13 +94,20 @@ extern "C" {
 #define DA7281_TOP_CFG1_ACCELERATION_EN (0x04U)
 #define DA7281_TOP_CFG1_FREQ_TRACK_EN   (0x01U)
 
-/* TOP_CTL1 register bits */
-#define DA7281_TOP_CTL1_OPERATION_MODE_MASK (0x07U)
+/* TOP_CFG1 register bits - Operation Mode (DA7281 Datasheet Rev 3.0, Table 21, Page 54) */
+#define DA7281_TOP_CFG1_OPERATION_MODE_MASK  (0x07U)  /* Bits [2:0] */
+#define DA7281_TOP_CFG1_OPERATION_MODE_SHIFT (0U)
+#define DA7281_TOP_CFG1_AMP_EN               (0x08U)  /* Bit 3 */
+
+/* Operation mode values */
 #define DA7281_OPERATION_MODE_INACTIVE      (0x00U)
 #define DA7281_OPERATION_MODE_DRO           (0x01U)
 #define DA7281_OPERATION_MODE_PWM           (0x02U)
 #define DA7281_OPERATION_MODE_RTWM          (0x03U)
 #define DA7281_OPERATION_MODE_ETWM          (0x04U)
+
+/* TOP_CTL1 register bits (0x28) - Different from TOP_CFG1! */
+#define DA7281_TOP_CTL1_OPERATION_MODE_MASK (0x07U)  /* DEPRECATED: Use TOP_CFG1 for mode */
 
 /*===========================================================================*/
 /* CONSTANTS AND MACROS                                                      */
@@ -110,7 +118,8 @@ extern "C" {
 #define DA7281_I2C_ADDRESS_ALT2         (0x4CU)
 #define DA7281_I2C_ADDRESS_ALT3         (0x4DU)
 
-#define DA7281_CHIP_REV_EXPECTED        (0xBAU)
+/* Expected CHIP_ID value (DA7281 Datasheet Rev 3.0, Table 20, Page 52) */
+#define DA7281_CHIP_ID_EXPECTED         (0x01U)
 
 #define DA7281_POWER_UP_DELAY_MS        (2U)
 #define DA7281_STANDBY_DELAY_MS         (1U)

@@ -21,6 +21,7 @@
 #include "FreeRTOS.h"
 #include "semphr.h"
 #include <string.h>
+#include <math.h>  /* For roundf() function */
 
 /*===========================================================================*/
 /* PRIVATE MACROS AND DEFINES                                                */
@@ -33,7 +34,8 @@
 /* PRIVATE VARIABLES                                                         */
 /*===========================================================================*/
 
-static SemaphoreHandle_t g_i2c_mutex = NULL;
+/* Per-bus I2C mutex for thread-safe access (one per TWI instance) */
+static SemaphoreHandle_t g_i2c_mutex[2] = {NULL, NULL};
 static bool g_i2c_initialized = false;
 
 /*===========================================================================*/
@@ -66,10 +68,10 @@ da7281_error_t da7281_init_handle(da7281_device_t *dev, uint8_t i2c_addr,
     DA7281_VALIDATE_PARAM(i2c_addr >= DA7281_I2C_ADDRESS_DEFAULT &&
                           i2c_addr <= DA7281_I2C_ADDRESS_ALT3);
 
-    /* Initialize mutex on first use */
-    if (g_i2c_mutex == NULL) {
-        g_i2c_mutex = xSemaphoreCreateMutex();
-        if (g_i2c_mutex == NULL) {
+    /* Initialize per-bus mutex on first use */
+    if (g_i2c_mutex[twi_inst] == NULL) {
+        g_i2c_mutex[twi_inst] = xSemaphoreCreateMutex();
+        if (g_i2c_mutex[twi_inst] == NULL) {
             return DA7281_ERR_I2C_COMM;
         }
     }
@@ -136,10 +138,13 @@ da7281_error_t da7281_power_off(da7281_device_t *dev)
 
 /**
  * @brief Verify chip ID
+ *
+ * DA7281 Datasheet Rev 3.0, Table 20, Page 52:
+ * Register 0x01 (CHIP_ID) should read 0x01
  */
 da7281_error_t da7281_verify_chip_id(const da7281_device_t *dev)
 {
-    uint8_t chip_rev = 0;
+    uint8_t chip_id = 0;
     da7281_error_t err;
 
     DA7281_VALIDATE_PARAM(dev != NULL);
@@ -148,12 +153,14 @@ da7281_error_t da7281_verify_chip_id(const da7281_device_t *dev)
         return DA7281_ERR_NOT_INITIALIZED;
     }
 
-    err = da7281_read_register(dev, DA7281_REG_CHIP_REV, &chip_rev);
+    /* Read CHIP_ID register (0x01) - NOT CHIP_REV (0x02) */
+    err = da7281_read_register(dev, DA7281_REG_CHIP_ID, &chip_id);
     if (err != DA7281_OK) {
         return err;
     }
 
-    if (chip_rev != DA7281_CHIP_REV_EXPECTED) {
+    /* Verify chip ID matches expected value (0x01) */
+    if (chip_id != DA7281_CHIP_ID_EXPECTED) {
         return DA7281_ERR_CHIP_ID;
     }
 
@@ -162,6 +169,10 @@ da7281_error_t da7281_verify_chip_id(const da7281_device_t *dev)
 
 /**
  * @brief Configure LRA parameters
+ *
+ * DA7281 Datasheet Rev 3.0:
+ * - LRA_PER formula: Page 64-65, Section 9.4.5
+ * - V2I_FACTOR formula: Page 65, Section 9.4.6
  */
 da7281_error_t da7281_configure_lra(const da7281_device_t *dev,
                                      float nom_max_v, float abs_max_v,
@@ -179,8 +190,21 @@ da7281_error_t da7281_configure_lra(const da7281_device_t *dev,
     DA7281_VALIDATE_PARAM(abs_max_v > 0.0f && abs_max_v <= 6.0f);
     DA7281_VALIDATE_PARAM(resonant_freq_hz > 0 && resonant_freq_hz <= 300);
 
-    /* Calculate LRA period: Period = 1 / (frequency * 1.024e-6) */
-    lra_period = (uint16_t)(1000000.0f / (resonant_freq_hz * 1.024f));
+    /*
+     * Calculate LRA_PER with proper rounding and bounds checking
+     * DA7281 Datasheet Page 64-65: LRA_PER = T / 1.024μs
+     * Where T = 1 / f_resonant
+     */
+    float period_seconds = 1.0f / (float)resonant_freq_hz;
+    float lra_per_float = period_seconds / 1.024e-6f;
+
+    /* Round to nearest integer and clamp to valid 16-bit range (1-65535) */
+    lra_per_float = fmaxf(1.0f, fminf(lra_per_float, 65535.0f));
+    lra_period = (uint16_t)roundf(lra_per_float);
+
+    if (lra_period == 0) {
+        lra_period = 1;  /* Safety: minimum valid value */
+    }
 
     /* Write LRA period (high byte first) */
     reg_val = (uint8_t)((lra_period >> 8) & 0xFFU);
@@ -191,8 +215,19 @@ da7281_error_t da7281_configure_lra(const da7281_device_t *dev,
     err = da7281_write_register(dev, DA7281_REG_LRA_PER_L, reg_val);
     if (err != DA7281_OK) return err;
 
-    /* Calculate V2I factor based on impedance */
-    v2i_factor = (uint16_t)(impedance_ohm * 1.5f);
+    /*
+     * Calculate V2I_FACTOR with proper rounding and bounds checking
+     * DA7281 Datasheet Page 65: V2I_FACTOR = 0.778 * (1 / Z) * 10^6
+     */
+    float v2i_float = 0.778f * (1.0f / impedance_ohm) * 1e6f;
+
+    /* Round to nearest integer and clamp to valid 16-bit range */
+    v2i_float = fminf(v2i_float, 65535.0f);
+    v2i_factor = (uint16_t)roundf(v2i_float);
+
+    if (v2i_factor == 0) {
+        v2i_factor = 1;  /* Safety: minimum valid value */
+    }
 
     /* Write V2I calibration values */
     reg_val = (uint8_t)((v2i_factor >> 8) & 0xFFU);
@@ -228,6 +263,10 @@ da7281_error_t da7281_configure_lra(const da7281_device_t *dev,
 
 /**
  * @brief Set operation mode
+ *
+ * DA7281 Datasheet Rev 3.0, Table 21, Page 54:
+ * OP_MODE is in TOP_CFG1 register (0x22), bits [2:0]
+ * NOT in TOP_CTL1 (0x28)!
  */
 da7281_error_t da7281_set_operation_mode(const da7281_device_t *dev, uint8_t mode)
 {
@@ -238,21 +277,25 @@ da7281_error_t da7281_set_operation_mode(const da7281_device_t *dev, uint8_t mod
     DA7281_VALIDATE_PARAM(dev->is_powered);
     DA7281_VALIDATE_PARAM(mode <= DA7281_OPERATION_MODE_ETWM);
 
-    /* Read current register value */
-    err = da7281_read_register(dev, DA7281_REG_TOP_CTL1, &reg_val);
+    /* Read current TOP_CFG1 register value (0x22) */
+    err = da7281_read_register(dev, DA7281_REG_TOP_CFG1, &reg_val);
     if (err != DA7281_OK) return err;
 
-    /* Clear mode bits and set new mode */
-    reg_val &= ~DA7281_TOP_CTL1_OPERATION_MODE_MASK;
-    reg_val |= (mode & DA7281_TOP_CTL1_OPERATION_MODE_MASK);
+    /* Clear mode bits [2:0] and set new mode with proper shift */
+    reg_val &= ~DA7281_TOP_CFG1_OPERATION_MODE_MASK;
+    uint8_t mode_value = (mode << DA7281_TOP_CFG1_OPERATION_MODE_SHIFT) & DA7281_TOP_CFG1_OPERATION_MODE_MASK;
+    reg_val |= mode_value;
 
-    /* Write back */
-    err = da7281_write_register(dev, DA7281_REG_TOP_CTL1, reg_val);
+    /* Write back to TOP_CFG1 */
+    err = da7281_write_register(dev, DA7281_REG_TOP_CFG1, reg_val);
     return err;
 }
 
 /**
  * @brief Get current operation mode
+ *
+ * DA7281 Datasheet Rev 3.0, Table 21, Page 54:
+ * OP_MODE is in TOP_CFG1 register (0x22), bits [2:0]
  */
 da7281_error_t da7281_get_operation_mode(const da7281_device_t *dev, uint8_t *mode)
 {
@@ -263,10 +306,12 @@ da7281_error_t da7281_get_operation_mode(const da7281_device_t *dev, uint8_t *mo
     DA7281_VALIDATE_PARAM(mode != NULL);
     DA7281_VALIDATE_PARAM(dev->is_powered);
 
-    err = da7281_read_register(dev, DA7281_REG_TOP_CTL1, &reg_val);
+    /* Read TOP_CFG1 register (0x22) */
+    err = da7281_read_register(dev, DA7281_REG_TOP_CFG1, &reg_val);
     if (err != DA7281_OK) return err;
 
-    *mode = reg_val & DA7281_TOP_CTL1_OPERATION_MODE_MASK;
+    /* Extract mode from bits [2:0] and shift to get actual mode value */
+    *mode = (reg_val & DA7281_TOP_CFG1_OPERATION_MODE_MASK) >> DA7281_TOP_CFG1_OPERATION_MODE_SHIFT;
     return DA7281_OK;
 }
 
@@ -375,7 +420,7 @@ da7281_error_t da7281_write_register(const da7281_device_t *dev,
 /*===========================================================================*/
 
 /**
- * @brief I2C write operation with mutex protection
+ * @brief I2C write operation with per-bus mutex protection
  */
 static da7281_error_t da7281_i2c_write(const da7281_device_t *dev,
                                         uint8_t reg_addr,
@@ -390,8 +435,13 @@ static da7281_error_t da7281_i2c_write(const da7281_device_t *dev,
         return DA7281_ERR_INVALID_PARAM;
     }
 
-    /* Take mutex */
-    if (xSemaphoreTake(g_i2c_mutex, pdMS_TO_TICKS(DA7281_I2C_TIMEOUT_MS)) != pdTRUE) {
+    /* Validate TWI instance */
+    if (dev->twi_instance >= 2) {
+        return DA7281_ERR_INVALID_PARAM;
+    }
+
+    /* Take per-bus mutex (allows parallel access to different TWI buses) */
+    if (xSemaphoreTake(g_i2c_mutex[dev->twi_instance], pdMS_TO_TICKS(DA7281_I2C_TIMEOUT_MS)) != pdTRUE) {
         return DA7281_ERR_TIMEOUT;
     }
 
@@ -406,14 +456,14 @@ static da7281_error_t da7281_i2c_write(const da7281_device_t *dev,
         result = DA7281_ERR_I2C_COMM;
     }
 
-    /* Release mutex */
-    xSemaphoreGive(g_i2c_mutex);
+    /* Release per-bus mutex */
+    xSemaphoreGive(g_i2c_mutex[dev->twi_instance]);
 
     return result;
 }
 
 /**
- * @brief I2C read operation with mutex protection
+ * @brief I2C read operation with per-bus mutex protection
  */
 static da7281_error_t da7281_i2c_read(const da7281_device_t *dev,
                                        uint8_t reg_addr,
@@ -423,8 +473,13 @@ static da7281_error_t da7281_i2c_read(const da7281_device_t *dev,
     ret_code_t nrf_err;
     da7281_error_t result = DA7281_OK;
 
-    /* Take mutex */
-    if (xSemaphoreTake(g_i2c_mutex, pdMS_TO_TICKS(DA7281_I2C_TIMEOUT_MS)) != pdTRUE) {
+    /* Validate TWI instance */
+    if (dev->twi_instance >= 2) {
+        return DA7281_ERR_INVALID_PARAM;
+    }
+
+    /* Take per-bus mutex (allows parallel access to different TWI buses) */
+    if (xSemaphoreTake(g_i2c_mutex[dev->twi_instance], pdMS_TO_TICKS(DA7281_I2C_TIMEOUT_MS)) != pdTRUE) {
         return DA7281_ERR_TIMEOUT;
     }
 
@@ -442,8 +497,8 @@ static da7281_error_t da7281_i2c_read(const da7281_device_t *dev,
     }
 
 cleanup:
-    /* Release mutex */
-    xSemaphoreGive(g_i2c_mutex);
+    /* Release per-bus mutex */
+    xSemaphoreGive(g_i2c_mutex[dev->twi_instance]);
 
     return result;
 }
