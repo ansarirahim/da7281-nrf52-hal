@@ -1,5 +1,44 @@
 cmake_minimum_required(VERSION 3.15)
 
+# ======================================================================
+# Auto-select ARM toolchain if not provided
+# ======================================================================
+
+if (NOT CMAKE_C_COMPILER)
+    set(ARM_TOOLCHAIN arm-none-eabi-gcc)
+    set(ARM_ASM_TOOLCHAIN arm-none-eabi-gcc)
+
+    message(STATUS "Using default ARM compiler: ${ARM_TOOLCHAIN}")
+
+    # Tell CMake we are cross-compiling
+    set(CMAKE_SYSTEM_NAME Generic)
+    set(CMAKE_SYSTEM_PROCESSOR ARM)
+
+    # Direct compiler selection
+    set(CMAKE_C_COMPILER   ${ARM_TOOLCHAIN})
+    set(CMAKE_ASM_COMPILER ${ARM_ASM_TOOLCHAIN})
+
+    # Needed to avoid running test binaries
+    set(CMAKE_TRY_COMPILE_TARGET_TYPE STATIC_LIBRARY)
+endif()
+
+# Set toolchain before project()
+set(CMAKE_SYSTEM_NAME Generic)
+set(CMAKE_SYSTEM_PROCESSOR ARM)
+
+# Toolchain settings
+set(CMAKE_C_COMPILER arm-none-eabi-gcc)
+set(CMAKE_CXX_COMPILER arm-none-eabi-g++)
+set(CMAKE_ASM_COMPILER arm-none-eabi-gcc)
+set(CMAKE_AR arm-none-eabi-ar)
+set(CMAKE_OBJCOPY arm-none-eabi-objcopy)
+set(CMAKE_OBJDUMP arm-none-eabi-objdump)
+set(CMAKE_SIZE arm-none-eabi-size)
+
+# Skip compiler tests (embedded targets can't run test programs)
+set(CMAKE_C_COMPILER_WORKS 1)
+set(CMAKE_CXX_COMPILER_WORKS 1)
+
 # Project configuration
 project(da7281_hal
     VERSION 1.0.0
