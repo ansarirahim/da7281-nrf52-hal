@@ -1,0 +1,10 @@
+# Project style: 4-space indent, function braces on their own line, 100 columns.
+BasedOnStyle: LLVM
+IndentWidth: 4
+ColumnLimit: 100
+BreakBeforeBraces: Linux
+AllowShortIfStatementsOnASingleLine: WithoutElse
+AllowShortFunctionsOnASingleLine: All
+AlignConsecutiveMacros: Consecutive
+AlignEscapedNewlines: Left
+SortIncludes: false
