@@ -2,37 +2,32 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-Professional Hardware Abstraction Layer (HAL) for the Dialog Semiconductor DA7281 haptic driver IC, designed for Nordic nRF52833 microcontroller with FreeRTOS integration.
+Hardware Abstraction Layer (HAL) for the Renesas (Dialog Semiconductor) DA7281 haptic driver IC, for the Nordic nRF52833 microcontroller (for example on the Qorvo DWM3001C module) with FreeRTOS.
 
 ## Features
 
-- **Complete DA7281 Register-Level Driver**
-  - All configuration registers defined as macros
+- **Register-level driver checked against the datasheet**
+  - Register addresses, fields and conversions from the DA7281 datasheet, Revision 3.1 (Table 20 and the register tables), with table references in `da7281.h`
   - No magic numbers in code
-  - Datasheet-compliant timing sequences
+  - Power-up timing that respects tON (1.5 ms max) at any FreeRTOS tick rate
 
 - **Thread-Safe I2C Communication**
-  - FreeRTOS mutex-protected TWI operations
+  - One FreeRTOS mutex per TWI bus, created before the scheduler starts
+  - The mutex is held across the register-pointer write and the read (repeated START) and across read-modify-write
   - Timeout handling
-  - Multi-device support
+  - Multi-device support (up to four DA7281 per bus via the ADDR pins)
 
 - **LRA/ERM Motor Support**
-  - Automatic resonant frequency configuration
-  - V2I factor calculation
-  - Acceleration and rapid stop control
-  - Frequency tracking
+  - Resonant period, voltage, current and V2I factor computed from the actuator ratings (integer arithmetic, rounded)
+  - Acceleration, rapid stop and frequency tracking; back-EMF sensing kept enabled
 
-- **Multiple Operation Modes**
-  - DRO (Direct Register Override)
-  - PWM mode
-  - RTWM (Real-Time Waveform Memory)
-  - ETWM (Extended Waveform Memory)
+- **Operation Modes** (TOP_CTL1.OPERATION_MODE)
+  - DRO (Direct Register Override) with OVERRIDE_VAL
+  - PWM, RTWM and ETWM mode selection (waveform memory sequences are not implemented yet)
 
-- **Professional Code Quality**
-  - MISRA-C compliant style
-  - Doxygen documentation
-  - Clean commit history
-  - CI/CD integration
+- **Tested without hardware**
+  - Host tests against a register model of the datasheet, at 1024, 1000 and 100 Hz ticks
+  - Cortex-M4F cross build, cppcheck, clang-format and Doxygen in CI
 
 ## Project Structure
 
@@ -45,11 +40,14 @@ da7281-nrf52-hal/
 │   └── da7281_init.c         # Initialization routines
 ├── examples/
 │   └── haptics_test_task.c   # FreeRTOS task example
+├── test/
+│   ├── test_da7281.c         # Host tests
+│   ├── da7281_model.c/.h     # DA7281 register model (datasheet Rev 3.1)
+│   └── stubs/                # nRF5 SDK / FreeRTOS API stand-ins for host builds
 ├── docs/
-│   └── architecture.md       # Architecture documentation
-├── .github/
-│   └── workflows/
-│       └── build.yml         # CI/CD pipeline
+│   └── ARCHITECTURE.md       # Architecture documentation
+├── .github/workflows/
+│   └── build.yml             # CI pipeline
 ├── CMakeLists.txt            # Build configuration
 ├── Doxyfile                  # Doxygen configuration
 └── README.md                 # This file
@@ -69,12 +67,18 @@ da7281-nrf52-hal/
 ```
 DA7281 Haptic Driver    nRF52833 (DWM3001C)
 --------------------    --------------------
-VDD         --------    3.3V
+VDD, VDDIO  --------    3.3V (optionally through a GPIO-controlled load switch)
 GND         --------    GND
-SDA         --------    P0.26 (TWI SDA)
-SCL         --------    P0.27 (TWI SCL)
-EN          --------    P0.28 (GPIO - configurable)
+SDA         --------    P0.26 (TWI SDA, with pull-up to VDDIO)
+SCL         --------    P0.27 (TWI SCL, with pull-up to VDDIO)
+nIRQ        --------    optional GPIO input (open drain, pull-up)
+ADDR_1      --------    VDDIO  } I2C address 0x4A
+ADDR_0      --------    GND    }
 ```
+
+The DA7281 has **no enable pin** (datasheet Table 1: "OFF state via EN pin: No"). Between playbacks it rests in the IDLE state at about 0.36 µA. To switch it off completely, switch its supply and pass that GPIO as `pwr_pin`.
+
+The ADDR pins replace the two least significant bits of the 7-bit base address 0x4A: `DA7281_I2C_ADDRESS(addr1, addr0)` gives 0x48, 0x49, 0x4A or 0x4B.
 
 ### Integration
 
@@ -93,18 +97,15 @@ EN          --------    P0.28 (GPIO - configurable)
 3. **Initialize in your main.c:**
    ```c
    #include "da7281.h"
-   
+
    int main(void)
    {
-       // Initialize TWI/I2C
+       // Initialize and enable TWI0 (nrf_drv_twi_init + nrf_drv_twi_enable)
        twi_init();
-       
-       // Initialize FreeRTOS
-       // ...
-       
-       // Start haptics task
+
+       // Create the bus object (its mutex) and the haptics task, before the scheduler
        haptics_task_init();
-       
+
        // Start scheduler
        vTaskStartScheduler();
    }
@@ -117,15 +118,17 @@ EN          --------    P0.28 (GPIO - configurable)
 ```c
 #include "da7281.h"
 
-da7281_device_t haptic_dev;
+static const nrf_drv_twi_t m_twi = NRF_DRV_TWI_INSTANCE(0);
+static da7281_bus_t twi_bus;
+static da7281_device_t haptic_dev;
 
-// Initialize device handle
-da7281_init_handle(&haptic_dev, 
-                    DA7281_I2C_ADDRESS_DEFAULT,
-                    0,    // TWI instance 0
-                    28);  // Power GPIO pin
+// Before vTaskStartScheduler():
+da7281_bus_init(&twi_bus, &m_twi);
+da7281_init_handle(&haptic_dev, &twi_bus,
+                   DA7281_I2C_ADDRESS(1, 0),  // ADDR_1 high, ADDR_0 low -> 0x4A
+                   DA7281_NO_PIN);            // VDD always on
 
-// Complete initialization with default LRA parameters
+// In a task (it waits for the 1.5 ms boot time):
 da7281_initialize(&haptic_dev);
 ```
 
@@ -134,17 +137,17 @@ da7281_initialize(&haptic_dev);
 ```c
 // Initialize with custom parameters
 da7281_initialize_custom(&haptic_dev,
-                          2.5f,   // Nominal max voltage (RMS)
-                          3.5f,   // Absolute max voltage (peak)
-                          350,    // Max current (mA)
-                          6.75f,  // Impedance (ohms)
-                          170);   // Resonant frequency (Hz)
+                         2.5f,   // Nominal (rated) voltage
+                         3.5f,   // Absolute maximum voltage
+                         250,    // Max current (mA); the device limit tops out at 251.8 mA
+                         6.75f,  // Impedance (ohms)
+                         170);   // Resonant frequency (Hz)
 ```
 
 ### Override Mode (Direct Amplitude Control)
 
 ```c
-// Set override value (0x00 to 0x7F)
+// Set override value (0x00 to 0x7F, full scale = 0x7F)
 da7281_set_override_value(&haptic_dev, 0x7F);
 
 // Enter DRO mode
@@ -169,58 +172,83 @@ da7281_run_self_test(&haptic_dev, 100);
 ### Power-Up Sequence
 
 ```
-1. Assert power GPIO (EN pin)
-2. Wait 2ms (datasheet requirement: min 1.5ms)
-3. Verify CHIP_REV register (0xBA expected)
-4. Set MODE=0 (Inactive)
+1. Apply VDD (switch it with pwr_pin, or it is always on)
+2. Wait at least tON = 1.5 ms (datasheet Table 8): rounded up to whole FreeRTOS ticks + 1,
+   because vTaskDelay(n) can return after only n-1 tick periods
+3. Verify CHIP_REV (register 0x00, reset value 0xCA, major revision 0xA)
+4. Set OPERATION_MODE = 0 (Inactive) in TOP_CTL1
 5. Configure LRA parameters
-6. Enable STANDBY mode
+6. STANDBY_EN = 0: return to IDLE (lowest power) after each playback
 ```
 
 ### Thread Safety
 
-All I2C operations are protected by a FreeRTOS mutex:
+All I2C transactions on a bus are protected by that bus's FreeRTOS mutex, created once in `da7281_bus_init()`:
 
 ```c
-xSemaphoreTake(g_i2c_mutex, timeout)
-// ... I2C transaction ...
-xSemaphoreGive(g_i2c_mutex)
+xSemaphoreTake(bus->mutex, timeout)
+// register pointer (no STOP), repeated START, read  -- or a read-modify-write
+xSemaphoreGive(bus->mutex)
 ```
+
+Do not call the driver from interrupt handlers: send the request to a task.
 
 ## API Reference
 
-See [Doxygen documentation](docs/html/index.html) for complete API reference.
+Generate the Doxygen documentation with `doxygen Doxyfile` (output in `docs/html/`).
 
 ### Core Functions
 
 | Function | Description |
 |----------|-------------|
+| `da7281_bus_init()` | Initialise a TWI bus object (mutex) before the scheduler |
 | `da7281_init_handle()` | Initialize device handle structure |
 | `da7281_initialize()` | Complete initialization with defaults |
 | `da7281_power_on()` | Power on device with timing |
 | `da7281_configure_lra()` | Configure LRA parameters |
 | `da7281_set_operation_mode()` | Set operation mode |
 | `da7281_set_override_value()` | Set DRO amplitude |
+| `da7281_set_standby()` | Choose STANDBY or IDLE after playback |
 | `da7281_run_self_test()` | Run self-test sequence |
+| `da7281_update_bits()` | Read-modify-write under one bus lock |
 
 ## Testing
 
-Run the example task on DWM3001CDK:
+### Host tests (no hardware)
 
 ```bash
-cd examples/
-# Flash to device
+cmake -S . -B build-host -DDA7281_HOST_TESTS=ON
+cmake --build build-host
+ctest --test-dir build-host --output-on-failure
+```
+
+The tests run the HAL against `test/da7281_model.c`, a register model built from the datasheet: register map, reset values, read-only registers, address pins and the boot time. They check the bytes written for known ratings (for example 170 Hz → FRQ_LRA_PER 0x22/0x3C, 2.5 V → ACTUATOR1 0x6B), that every transfer holds the bus mutex, that reads use a repeated START, and that nothing is sent during the boot window, at 1024, 1000 and 100 Hz ticks.
+
+### Cross build
+
+```bash
+cmake -S . -B build-arm -DNRF5_SDK_PATH=/path/to/nRF5_SDK -DDA7281_SDK_CONFIG_DIR=/path/to/your/config
+cmake --build build-arm
+```
+
+Without an SDK the library is compiled against the API stand-ins in `test/stubs` (a compile check).
+
+### On hardware
+
+Run the example task on a DWM3001CDK:
+
+```bash
 nrfjprog --program haptics_test.hex --chiperase --verify --reset
 ```
 
 Expected RTT log output:
 ```
-Haptics Task: Starting initialization sequence
-DA7281: Powering on device (GPIO pin 28)
-DA7281: Chip ID verified successfully
+Haptics Task: Starting task execution
 DA7281: Configuring LRA parameters
-  - Nominal Max: 2.50 V RMS
+  - Nominal Max: 2500 mV
   - Resonant Freq: 170 Hz
+DA7281: Starting initialization sequence
+DA7281: Chip ID verified successfully
 Haptics Task: Running self-test (100ms pulse)
 ```
 
@@ -234,20 +262,19 @@ MIT License - see [LICENSE](LICENSE) file for details.
 - Embedded Firmware Engineer
 - Specialization: Nordic nRF52, FreeRTOS, Low-Level Drivers
 - Email: ansarirahim1@gmail.com
-- GitHub: [@ansarirahim](https://github.com/ansarirahim)
+- GitHub: [ansarirahim](https://github.com/ansarirahim)
 - LinkedIn: [Abdul Raheem Ansari](https://www.linkedin.com/in/abdul-raheem-ansari-a6871320/)
 - WhatsApp: +919024304883
 
 ## Contributing
 
 Contributions welcome! Please follow:
-- MISRA-C coding standards
+- The style in `.clang-format`, and keep the host tests passing
 - Doxygen comment style
 - Clean commit messages
 
 ## References
 
-- [DA7281 Datasheet](https://www.renesas.com/en/document/dst/da7281-datasheet)
+- [DA7281 Datasheet](https://www.renesas.com/en/document/dst/da7281-datasheet) (Revision 3.1 used for this driver)
 - [nRF52833 Product Specification](https://infocenter.nordicsemi.com/pdf/nRF52833_PS_v1.5.pdf)
 - [DWM3001C Module Datasheet](https://www.qorvo.com/products/p/DWM3001C)
-
